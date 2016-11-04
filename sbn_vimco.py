@@ -68,19 +68,19 @@ def train(config):
   # elbo is monte carlo estimate of log joint minus entropy
   elbo = E_log_likelihood + E_log_prior - E_log_q
   mean_elbo = tf.reduce_mean(tf.reduce_mean(elbo, 0), 0)
-  elbo_with_vimco = util.build_vimco_loss(elbo)
-  # elbo_with_vimco = elbo
+  loss_q, w = util.build_vimco_loss(elbo)
+  # loss_q = elbo
+  loss_p = elbo * w
   tf.scalar_summary('elbo', mean_elbo)
 
   pre_score_function = tf.reduce_sum(q_z.distribution.log_prob(q_z), -1)
-  pre_score_function_elbo = (pre_score_function *
-                             tf.stop_gradient(elbo_with_vimco))
+  score_loss_q = (pre_score_function * tf.stop_gradient(loss_q))
   optimizer = tf.train.AdamOptimizer(cfg['q/learning_rate'],
                                       beta1=cfg['optim/beta1'],
                                       beta2=cfg['optim/beta2'])
-  train_q = optimizer.minimize(-pre_score_function_elbo,
+  train_q = optimizer.minimize(-score_loss_q,
                                var_list=fw.get_variables('variational'))
-  train_p = optimizer.minimize(-elbo, var_list=fw.get_variables('model'))
+  train_p = optimizer.minimize(-loss_p, var_list=fw.get_variables('model'))
   global_step = fw.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
   with tf.control_dependencies([increment_global_step]):

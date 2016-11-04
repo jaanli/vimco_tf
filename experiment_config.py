@@ -14,7 +14,7 @@ def get_config():
     cfg.define_list('shape', [28, 28, 1], 'shape of the data')
   # optimization
   with cfg.scope('optim'):
-    cfg.define_integer('batch_size', 1, 'batch size')
+    cfg.define_integer('batch_size', 64, 'batch size')
     cfg.define_float('beta1', 0.9, 'adam beta1 parameter')
     cfg.define_float('beta2', 0.999, 'adam beta2 parameter')
   # model

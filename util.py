@@ -18,7 +18,7 @@ def build_vimco_loss(l):
   k = l_shape[0]
   b = l_shape[1]
   kf = tf.cast(k, tf.float32)
-  L_hat = tf.reduce_logsumexp(l, [0]) - tf.log(kf)
+  L_hat = tf.reduce_logsumexp(l, [0], keep_dims=True) - tf.log(kf)
   s = tf.reduce_sum(l, 0, keep_dims=True)
   diag_mask = tf.expand_dims(tf.diag(tf.ones([k], dtype=tf.float32)), -1)
   off_diag_mask = 1. - diag_mask
@@ -27,12 +27,13 @@ def build_vimco_loss(l):
   l_i = l_i_diag + l_i_off_diag
   L_hat_minus_i = tf.reduce_logsumexp(l_i, [0]) - tf.log(kf)
   L_hat_minus_i = tf.reshape(L_hat_minus_i, [k, b])
-  return L_hat - L_hat_minus_i
+  w = tf.nn.softmax(l)
+  return L_hat - L_hat_minus_i, w
 
 
 def _logsubexp(a, b, eps=1e-6):
   """Stable log(exp(a) - exp(b))."""
-  return a + tf.log(1. - tf.clip_by_value(tf.exp(b - a), eps, 1-eps))
+  return a + tf.log(1. - tf.clip_by_value(tf.exp(b - a), eps, 1. - eps))
 
 
 def provide_data(config):
