@@ -5,6 +5,7 @@ import logging
 import util
 import experiment_config
 import os
+import getpass
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -26,7 +27,7 @@ def train(config):
   # data
   input_data = tf.placeholder(cfg['dtype'],
                               [cfg['optim/batch_size']] +  cfg['data/shape'])
-  data_iterator, _, _ = util.provide_data(cfg)
+  data_iterator, data_mean, data_std = util.provide_data(cfg)
   def feed_fn():
     """Return feed dict when called."""
     _, images = data_iterator.next()
@@ -39,7 +40,7 @@ def train(config):
     z = tf.cast(z, cfg['dtype'])
     z = tf.reshape(z, [cfg['q/n_samples'] * cfg['optim/batch_size'], -1])
     net = slim.fully_connected(z, cfg['p/hidden_size'],
-        activation_fn=tf.nn.tanh, scope='fc1')
+        activation_fn=tf.sigmoid, scope='fc1')
     p_logits = slim.fully_connected(net, cfg['data/size'], scope='fco')
     out_shape = [cfg['q/n_samples'],
                  cfg['optim/batch_size']] + cfg['data/shape']
@@ -49,14 +50,16 @@ def train(config):
 
   # variational
   with tf.variable_scope('variational'):
-    net_input = slim.flatten(input_data)
+    net_input = slim.flatten(input_data) - data_mean  # center the input
     net = slim.fully_connected(
-        net_input, cfg['q/hidden_size'], scope='fc1', activation_fn=tf.nn.tanh)
+        net_input, cfg['q/hidden_size'], scope='fc1', activation_fn=tf.sigmoid)
     q_logits = slim.fully_connected(
         net, cfg['p/z_dim'], activation_fn=None, scope='fco')
     with st.value_type(st.SampleValue(n=cfg['q/n_samples'])):
-      q_z = st.StochasticTensor(
-          dist.Bernoulli, logits=q_logits, validate_args=False)
+      # q_z = st.StochasticTensor(
+      #     dist.Bernoulli, logits=q_logits, validate_args=False)
+      bernoulli = dist.Bernoulli(logits=q_logits, validate_args=False)
+      q_z = st.StochasticTensor(bernoulli)
 
   # inference
   # build the ELBO and optimize it with respect to model and variational params
@@ -69,11 +72,12 @@ def train(config):
   elbo = E_log_likelihood + E_log_prior - E_log_q
   mean_elbo = tf.reduce_mean(tf.reduce_mean(elbo, 0), 0)
   loss_q, w = util.build_vimco_loss(elbo)
+  loss_p = elbo
   # loss_q = elbo
-  loss_p = elbo * w
+  # loss_p = elbo
   tf.scalar_summary('elbo', mean_elbo)
 
-  pre_score_function = tf.reduce_sum(q_z.distribution.log_prob(q_z), -1)
+  pre_score_function = tf.reduce_sum(q_z.distribution.log_prob(q_z.value()), -1)
   score_loss_q = (pre_score_function * tf.stop_gradient(loss_q))
   optimizer = tf.train.AdamOptimizer(cfg['q/learning_rate'],
                                       beta1=cfg['optim/beta1'],
@@ -102,6 +106,10 @@ def train(config):
 
 def main(_):
   cfg = experiment_config.get_config()
+  print cfg
+  if getpass.getuser() == 'jaan':
+    cfg.update({'data': {'dir':'/home/jaan/dat'},
+        'log': {'dir': '/home/jaan/fit/vimco_tf'}})
   train(cfg)
 
 
