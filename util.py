@@ -3,13 +3,17 @@ import numpy as np
 import os
 import tensorflow as tf
 
+fw = tf.contrib.framework
 
-def build_vimco_loss(l):
+pprint = lambda x, msg: tf.Print(x, [x], message=msg)
+
+def build_vimco_loss(l, log_q_h):
   """Builds VIMCO baseline as in https://arxiv.org/abs/1602.06725
 
   Args:
     l: Per-sample learning signal. shape [k, b] or
         [number of samples, batch_size]
+    log_q_h: Sum of log q(h^l) over layers
 
   Returns:
     baseline to subtract from l
@@ -18,17 +22,31 @@ def build_vimco_loss(l):
   k = l_shape[0]
   b = l_shape[1]
   kf = tf.cast(k, tf.float32)
-  L_hat = tf.reduce_logsumexp(l, [0], keep_dims=True) - tf.log(kf)
+  l_logsumexp = tf.reduce_logsumexp(l, [0], keep_dims=True)  
+  L_hat = l_logsumexp - tf.log(kf)
+  tf.scalar_summary('log_likelihood', tf.reduce_mean(L_hat))
   s = tf.reduce_sum(l, 0, keep_dims=True)
   diag_mask = tf.expand_dims(tf.diag(tf.ones([k], dtype=tf.float32)), -1)
   off_diag_mask = 1. - diag_mask
-  l_i_diag = 1. / (kf - 1.) * _logsubexp(s, l) * diag_mask
+  diff = tf.expand_dims(s - l, 0)  # expand for proper broadcasting
+  l_i_diag = 1. / (kf - 1.) * diff * diag_mask
   l_i_off_diag = off_diag_mask * tf.pack([l] * k)
   l_i = l_i_diag + l_i_off_diag
-  L_hat_minus_i = tf.reduce_logsumexp(l_i, [0]) - tf.log(kf)
-  L_hat_minus_i = tf.reshape(L_hat_minus_i, [k, b])
-  w = tf.nn.softmax(l)
-  return L_hat - L_hat_minus_i, w
+  L_hat_minus_i = tf.reduce_logsumexp(l_i, [1]) - tf.log(kf)
+  #with tf.Session() as sess:
+  #  sess.run(tf.initialize_all_variables())
+  #  print 'mask'
+  #  print sess.run(diag_mask[:, :, 0])
+  #  print 'masked diff'
+  #  print sess.run(l_i_diag[:, :, 0])
+  #  print 'off diag diff'
+  #  print sess.run(l_i_off_diag[:, :, 0])
+  #  print sess.run(l_i[:, :, 0])
+  #  print 'L_hat_minus_i'
+  #  print sess.run(L_hat_minus_i)
+  w = tf.exp((l - l_logsumexp))
+  loss = tf.stop_gradient(L_hat - L_hat_minus_i) * log_q_h + tf.stop_gradient(w) * l 
+  return loss / float(b)
 
 
 def _logsubexp(a, b, eps=1e-6):
@@ -80,13 +98,12 @@ def provide_data(config):
       idxs = np.arange(0, len(data))
       np.random.shuffle(idxs)
       shuf_data = [indexed_data[idx] for idx in idxs]
-      for batch_idx in range(0, len(data), cfg['optim/batch_size']):
-        indexed_images_batch = shuf_data[batch_idx:batch_idx+cfg['optim/batch_size']]
+      for batch_idx in range(0, len(data), cfg['batch_size']):
+        indexed_images_batch = shuf_data[batch_idx:batch_idx+cfg['batch_size']]
         indexes, images_batch = zip(*indexed_images_batch)
         images_batch = np.vstack(images_batch)
         images_batch = images_batch.reshape(
-              (cfg['optim/batch_size'], 28, 28, 1))
+              (cfg['batch_size'], 28, 28, 1))
         yield indexes, images_batch
 
   return data_iterator(), data_mean, data_std
-
