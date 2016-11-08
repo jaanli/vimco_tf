@@ -7,7 +7,7 @@ fw = tf.contrib.framework
 
 pprint = lambda x, msg: tf.Print(x, [x], message=msg)
 
-def build_vimco_loss(l, log_q_h):
+def build_vimco_loss(l, log_q_h, log_q_h_list):
   """Builds VIMCO baseline as in https://arxiv.org/abs/1602.06725
 
   Args:
@@ -18,13 +18,10 @@ def build_vimco_loss(l, log_q_h):
   Returns:
     baseline to subtract from l
   """
-  l_shape = l.get_shape().as_list()
-  k = l_shape[0]
-  b = l_shape[1]
+  k, b = l.get_shape().as_list()
   kf = tf.cast(k, tf.float32)
-  l_logsumexp = tf.reduce_logsumexp(l, [0], keep_dims=True)  
+  l_logsumexp = tf.reduce_logsumexp(l, [0], keep_dims=True)
   L_hat = l_logsumexp - tf.log(kf)
-  tf.scalar_summary('log_likelihood', tf.reduce_mean(L_hat))
   s = tf.reduce_sum(l, 0, keep_dims=True)
   diag_mask = tf.expand_dims(tf.diag(tf.ones([k], dtype=tf.float32)), -1)
   off_diag_mask = 1. - diag_mask
@@ -33,25 +30,23 @@ def build_vimco_loss(l, log_q_h):
   l_i_off_diag = off_diag_mask * tf.pack([l] * k)
   l_i = l_i_diag + l_i_off_diag
   L_hat_minus_i = tf.reduce_logsumexp(l_i, [1]) - tf.log(kf)
-  #with tf.Session() as sess:
-  #  sess.run(tf.initialize_all_variables())
-  #  print 'mask'
-  #  print sess.run(diag_mask[:, :, 0])
-  #  print 'masked diff'
-  #  print sess.run(l_i_diag[:, :, 0])
-  #  print 'off diag diff'
-  #  print sess.run(l_i_off_diag[:, :, 0])
-  #  print sess.run(l_i[:, :, 0])
-  #  print 'L_hat_minus_i'
-  #  print sess.run(L_hat_minus_i)
-  w = tf.exp((l - l_logsumexp))
-  loss = tf.stop_gradient(L_hat - L_hat_minus_i) * log_q_h + tf.stop_gradient(w) * l 
-  return loss / float(b)
+  w = tf.stop_gradient(tf.exp((l - l_logsumexp)))
+  local_l = tf.stop_gradient(L_hat - L_hat_minus_i)
+  loss = local_l * log_q_h + w * l
+  return loss / float(b), tf.reduce_mean(L_hat[0, :], 0)
 
 
 def _logsubexp(a, b, eps=1e-6):
   """Stable log(exp(a) - exp(b))."""
   return a + tf.log(1. - tf.clip_by_value(tf.exp(b - a), eps, 1. - eps))
+
+
+def fully_connected(inp, size, scope):
+  w = tf.get_variable(name=scope + '/weights',
+      dtype=tf.float32, shape=[inp.get_shape.as_list()[-1], size])
+  b = tf.get_variable(name=scope + '/biases',
+      dtype=tf.float32, shape=[size])
+  return tf.nn.xw_plus_b(inp, w, b)
 
 
 def provide_data(config):
@@ -76,17 +71,17 @@ def provide_data(config):
     data = np.vstack([train, valid])
   else:
     data = f[cfg['data/split']][:]
-
   try:
     if cfg['data/fixed_idx'] is not None:
       data = data[cfg['data/fixed_idx']:cfg['data/fixed_idx'] + 1]
   except:
     pass
-
   data = data[0:cfg['data/n_examples']]
-
   data_mean = np.mean(data, axis=0)
   data_std = np.std(data, axis=0)
+  reshape = lambda t: np.reshape(t, (28, 28, 1))
+  data_mean = reshape(data_mean)
+  data_std = reshape(data_std)
 
   # create indexes for the data points.
   indexed_data = zip(range(len(data)), np.split(data, len(data)))
@@ -107,3 +102,14 @@ def provide_data(config):
         yield indexes, images_batch
 
   return data_iterator(), data_mean, data_std
+
+
+def remove_dir(config):
+  """Delete directory contents if it exists."""
+  cfg = config
+  for f in tf.gfile.ListDirectory(cfg['log/dir']):
+    path = os.path.join(cfg['log/dir'], f)
+    if os.path.isdir(path):
+      tf.gfile.DeleteRecursively(path)
+    else:
+      tf.gfile.Remove(path)

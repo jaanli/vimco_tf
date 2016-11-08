@@ -11,17 +11,19 @@ class VariationalInference:
     log_q_h_list = variational.log_prob(h)
     log_q_h = tf.add_n([tf.reduce_sum(t, -1) for t in log_q_h_list])
     log_p_x_h = model.log_prob(data, h)
+    summary = lambda tag, v: tf.scalar_summary(tag, tf.reduce_mean(tf.reduce_mean(v, 0), 0))
+    summary('log_p_x_h', log_p_x_h)
+    summary('neg_log_q_h', -log_q_h)
     elbo = log_p_x_h - log_q_h
-    loss = util.build_vimco_loss(elbo, log_q_h)
-    #score_loss_q = tf.add_n(
-    #    [t * tf.stop_gradient(tf.expand_dims(loss_q, -1)) for t in log_q_h_list])
-    optimizer = tf.train.AdamOptimizer(cfg['q/learning_rate'],
+    summary('elbo', elbo)
+    loss, vimco_elbo = util.build_vimco_loss(elbo, log_q_h, log_q_h_list)
+    optimizer = tf.train.AdamOptimizer(cfg['optim/learning_rate'],
                                         beta1=cfg['optim/beta1'],
-                                        beta2=cfg['optim/beta2'])
+                                        beta2=cfg['optim/beta2'],
+                                        epsilon=cfg['optim/epsilon'])
     global_step = fw.get_or_create_global_step()
     train_op = optimizer.minimize(-loss, global_step=global_step)
-    mean_elbo = tf.reduce_mean(tf.reduce_mean(elbo, 0), 0)
-    tf.scalar_summary('elbo', mean_elbo)
-    self.mean_elbo = mean_elbo
+    tf.scalar_summary('vimco_elbo', vimco_elbo)
+    self.vimco_elbo =  vimco_elbo
     self.train_op = train_op
 

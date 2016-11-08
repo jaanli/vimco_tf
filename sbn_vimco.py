@@ -9,53 +9,61 @@ import models
 import inferences
 import util
 import experiment_config
+import time
 
 tf.logging.set_verbosity(tf.logging.INFO)
-
-st = tf.contrib.bayesflow.stochastic_tensor
-sg = tf.contrib.bayesflow.stochastic_graph
-sge = tf.contrib.bayesflow.stochastic_gradient_estimators
 fw = tf.contrib.framework
-slim = tf.contrib.slim
 learn = tf.contrib.learn
 
 def train(config):
   """Train sigmoid belief net on MNIST."""
   cfg = config
   if cfg['log/clear_dir']:
-    for f in tf.gfile.ListDirectory(cfg['log/dir']):
-      tf.gfile.Remove(os.path.join(cfg['log/dir'], f))
+    util.remove_dir(cfg)
 
   # data
-  data_iterator, data_mean, data_std = util.provide_data(cfg)
+  data_iterator, np_data_mean, _ = util.provide_data(cfg)
   input_data = tf.placeholder(cfg['dtype'],
                               [cfg['batch_size']] +  cfg['data/shape'])
+  data_mean = tf.placeholder(cfg['dtype'], cfg['data/shape'])
+  input_data_centered = input_data - tf.expand_dims(data_mean, 0)
   tf.image_summary('data', input_data, max_images=cfg['batch_size'])
-
-  #input_data = tf.ones(shape=[cfg['batch_size']] + cfg['data/shape'],
-  #                              dtype=cfg['dtype'])
-  # normalize the data
-  input_data_centered = input_data - data_mean
   def feed_fn():
     _, images = data_iterator.next()
-    return {input_data: images}
+    return {input_data: images, data_mean: np_data_mean}
 
   model = models.Model(cfg)
   variational = models.Variational(cfg)
   inference = inferences.VariationalInference(
       cfg, model, variational, input_data, input_data_centered)
+  model_vars = fw.get_model_variables('model')
+  variational_vars = fw.get_model_variables('variational')
+  summary_op = tf.merge_all_summaries()
+  saver = tf.train.Saver()
 
-  # monitors = [learn.monitors.PrintTensor([mean_elbo], every_n=100)]
-
+  # train
   learn.train(graph=tf.get_default_graph(),
               output_dir=cfg['log/dir'],
               train_op=inference.train_op,
-              loss_op=inference.mean_elbo,
+              loss_op=inference.vimco_elbo,
               feed_fn=feed_fn,
-              supervisor_save_summaries_steps=1,
-              log_every_steps=1)
-              # monitors=monitors
-  #todo add update funcition to train to be called every so often
+              supervisor_save_summaries_steps=100,
+              log_every_steps=100,
+              # max_steps=1)
+              max_steps=cfg['optim/n_iterations'])
+
+  # evaluate likelihood on validation set
+  with tf.Session() as sess:
+    saver.restore(sess, tf.train.latest_checkpoint(cfg['log/dir']))
+    np_log_x = 0.
+    cfg.update({'data': {'split': 'valid', 'n_examples': 10000}})
+    data_iterator, np_data_mean, _ = util.provide_data(cfg)
+    for i in range(cfg['data/n_examples'] / cfg['data/batch_size']):
+      _, images = data_iterator.next()
+      np_log_x += sess.run(model.log_likelihood_tensor, {input_data: images,
+          data_mean: np_data_mean})
+    print ('log-likelihood on evaluation set is: ',
+        np_log_x / cfg['data/n_examples'])
 
 
 def main(_):
