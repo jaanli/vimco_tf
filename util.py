@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import os
 import tensorflow as tf
+import scipy.misc
 
 fw = tf.contrib.framework
 
@@ -113,3 +114,25 @@ def remove_dir(config):
       tf.gfile.DeleteRecursively(path)
     else:
       tf.gfile.Remove(path)
+
+
+def save_prior_posterior_predictives(cfg, sess, inference, prior_predictive, posterior_predictive, feed_dict, images):
+  """Save prior and posterior samples."""
+  reshape = lambda x: np.reshape(x, (x.shape[0], 28, 28))
+  np_step = sess.run(inference.global_step)
+  print prior_predictive, posterior_predictive
+  np_prior_predictive = sess.run(prior_predictive[0, :, :, :, :], feed_dict)
+  np_prior_predictive = reshape(np_prior_predictive)
+  np_posterior_predictive = sess.run(posterior_predictive[0, :, :, :, :], feed_dict)
+  np_posterior_predictive = reshape(np_posterior_predictive)
+  for k in range(cfg['batch_size']):
+    im_name = 'i_%d_k_%d_' % (np_step, k)
+    prior_name = im_name + 'prior_predictive.jpg'
+    posterior_name = im_name + 'posterior_predictive.jpg'
+    orig_name = im_name + 'original.jpg'
+    scipy.misc.imsave(os.path.join(cfg['log/dir'], orig_name),
+            images[k, :, :, 0])
+    scipy.misc.imsave(os.path.join(cfg['log/dir'], prior_name),
+            np_prior_predictive[k, :, :])
+    scipy.misc.imsave(os.path.join(cfg['log/dir'], posterior_name),
+          np_posterior_predictive[k, :, :])

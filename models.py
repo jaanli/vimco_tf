@@ -13,21 +13,35 @@ class Model:
   def __init__(self, config):
     self.config = config
 
+  def prior_sample(self, n):
+    return tf.cast(self.p_h.sample(n), self.config['dtype'])
+
   def log_prob(self, data, h):
     """Log joint of the model.
     log f(x, h) = log p(x | h) + \sum_{i} log p(h_i | h_{i + 1})
     """
     cfg = self.config
-    with tf.variable_scope('model'):
+    init = tf.random_normal_initializer(mean=cfg['p/w_eps'], stddev=0.001)
+    with tf.variable_scope('model') and fw.arg_scope([layers.fully_connected],
+        weights_initializer=init, biases_initializer=init):
       p_h = dist.Bernoulli(
-              p=np.ones(cfg['p/h_dim'], dtype=cfg['dtype']) * 0.5,
+              p=np.ones(cfg['p/h_dim'], dtype=cfg['dtype']) * cfg['p/bernoulli_p'],
               name='p_h_%d' % cfg['p/n_layers'], validate_args=False)
+      self.p_h = p_h
       log_p_h = 0.
       log_p_h += tf.reduce_sum(p_h.log_pmf(h[-1]), -1)
       for n in range(cfg['p/n_layers'] - 1, 0, -1):
         log_p_h += self.layer_log_p_h(n=n, h_layer=h[n - 1], h_above=h[n])
-      log_p_x_given_h = self.log_likelihood(data, h[0])
+      p_x_given_h = self.likelihood(h[0])
+      log_p_x_given_h = tf.reduce_sum(p_x_given_h.log_pmf(data), [2, 3, 4])
+      posterior_predictive = tf.cast(
+          p_x_given_h.sample(), tf.float32)
+      tf.image_summary('posterior_predictive',
+                       posterior_predictive[0, :, :, :, :],
+                       max_images=cfg['batch_size'])
+      self.log_likelihood_tensor = tf.reduce_sum(tf.reduce_mean(log_p_x_given_h, 0))
       log_p_x_h = log_p_x_given_h + log_p_h
+      self.posterior_predictive = posterior_predictive
     return log_p_x_given_h
 
   def layer_log_p_h(self, n, h_layer, h_above):
@@ -47,30 +61,22 @@ class Model:
     log_p_h_given_h = tf.reduce_sum(p_h_given_h.log_pmf(h_layer), -1)
     return log_p_h_given_h
 
-  def log_likelihood(self, data, h_0):
+  def likelihood(self, h_0, reuse=False):
     """Log likelihood of the data."""
     cfg = self.config
     h_0 = tf.reshape(
         h_0, [cfg['q/n_samples'] * cfg['batch_size'], cfg['p/h_dim']])
-    p_logits = layers.fully_connected(
-            h_0, np.prod(cfg['data/shape']), activation_fn=None, scope='fc0')
+    with tf.variable_scope('model', reuse=reuse):
+      p_logits = layers.fully_connected(
+              h_0, np.prod(cfg['data/shape']), activation_fn=None, scope='fc0')
     out_shape = ([cfg['q/n_samples'], cfg['batch_size']]
         + cfg['data/shape'])
     p_logits = tf.reshape(p_logits, out_shape)
     p_x_given_h = dist.Bernoulli(
         logits=p_logits, name='p_x_given_h_0', validate_args=False)
-    posterior_predictive = p_x_given_h.sample()
-    tf.image_summary('posterior_predictive',
-                     tf.cast(posterior_predictive[0, :, :, :, :], tf.float32),
-                     max_images=cfg['batch_size'])
-    self.posterior_predictive = posterior_predictive
-    log_likelihood = p_x_given_h.log_pmf(data)
-    log_likelihood = tf.reduce_sum(log_likelihood, [2, 3, 4])
-    tf.scalar_summary(
-        'log_likelihood', tf.reduce_mean(tf.reduce_mean(log_likelihood, 0), 0))
+    sample = p_x_given_h.sample()
     self.p_x_given_h_p = tf.sigmoid(p_logits)
-    self.log_likelihood_tensor = tf.reduce_sum(tf.reduce_mean(log_likelihood, 0))
-    return log_likelihood
+    return p_x_given_h
 
 
 class Variational:
@@ -131,4 +137,6 @@ class Variational:
     log_q_h = []
     for n in range(cfg['p/n_layers']):
       log_q_h.append(self.q_h[n].log_pmf(tf.stop_gradient(h[n])))
+    self.log_q_h = log_q_h
+    self.log_q_h_t = [tf.placeholder(shape=v.get_shape(), dtype=v.dtype) for v in log_q_h]
     return log_q_h
