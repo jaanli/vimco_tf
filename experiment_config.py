@@ -9,7 +9,9 @@ def get_config():
   cfg.define_integer('batch_size', 20, 'batch size')
   with cfg.scope('data'):
     cfg.define_string('split', 'train', 'which split to use')
-    cfg.define_string('dir', '/Users/jaanaltosaar/dat', 'data directory')
+    cfg.define_string('dir', '/tmp/',
+        'data directory, where the binarized_mnist.hdf5 file is'
+        '(the output of make_binarized_mnist_hdf5_file.py)')
     cfg.define_integer('n_examples', 50000, 'number of datapoints')
     # cfg.define_list('shape', [1, 1, 1], 'shape of the data')
     cfg.define_list('shape', [28, 28, 1], 'shape of the data')
@@ -29,7 +31,7 @@ def get_config():
     cfg.define_integer('n_samples', 1000, 'number of samples')
   # logging
   with cfg.scope('log'):
-    cfg.define_string('dir', '/Users/jaanaltosaar/tmp', 'output directory')
+    cfg.define_string('dir', '/tmp', 'output directory')
     cfg.define_boolean('clear_dir', False, 'clear output directory')
     cfg.define_integer('print_every', 100, 'print every')
   cfg.parse_args()
