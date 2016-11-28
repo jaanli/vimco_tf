@@ -14,7 +14,7 @@ python make_binarized_mnist_hdf5_file.py
 # run sbn training with vimco. ideally on GPU (10x speedup)
 python sbn_vimco.py
 
-# visualize logs
+#  visualize logs
 tensorboard --logdir /tmp
 ```
 
