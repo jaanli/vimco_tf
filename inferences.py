@@ -23,7 +23,8 @@ class VariationalInference:
                                         epsilon=cfg['optim/epsilon'])
     global_step = fw.get_or_create_global_step()
     train_op = optimizer.minimize(-loss, global_step=global_step)
-    tf.scalar_summary('vimco_elbo', vimco_elbo)
-    self.vimco_elbo =  vimco_elbo
+    tf.scalar_summary('vimco_elbo', tf.reduce_mean(vimco_elbo))
+    self.vimco_elbo = vimco_elbo
+    # self.vimco_elbo = tf.reduce_mean(tf.reduce_mean(log_p_x_h, 0), 0)
     self.train_op = train_op
 

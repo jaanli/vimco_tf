@@ -33,7 +33,7 @@ def build_vimco_loss(l, log_q_h, log_q_h_list):
   w = tf.stop_gradient(tf.exp((l - l_logsumexp)))
   local_l = tf.stop_gradient(L_hat - L_hat_minus_i)
   loss = local_l * log_q_h + w * l
-  return loss / float(b), tf.reduce_mean(L_hat[0, :], 0)
+  return loss / float(b), L_hat[0, :]
 
 
 def _logsubexp(a, b, eps=1e-6):

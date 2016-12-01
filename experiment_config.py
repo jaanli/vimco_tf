@@ -5,6 +5,7 @@ def get_config():
   """Define config and command line args."""
   cfg = config.Config()
   cfg.define_string('dtype', 'float32', 'dtype to use')
+  cfg.define_boolean('eval_only', False, 'only evaluate')
   # data
   cfg.define_integer('batch_size', 20, 'batch size')
   with cfg.scope('data'):
@@ -28,7 +29,7 @@ def get_config():
     cfg.define_integer('n_layers', 3, 'number of layers')
   # variational
   with cfg.scope('q'):
-    cfg.define_integer('n_samples', 1000, 'number of samples')
+    cfg.define_integer('n_samples', 5, 'number of samples')
   # logging
   with cfg.scope('log'):
     cfg.define_string('dir', '/tmp', 'output directory')
