@@ -18,8 +18,6 @@ learn = tf.contrib.learn
 def train(config):
   """Train sigmoid belief net on MNIST."""
   cfg = config
-  if cfg['log/clear_dir']:
-    util.remove_dir(cfg)
 
   # data
   data_iterator, np_data_mean, _ = util.provide_data(cfg)
